@@ -1,444 +1,574 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc } from 'firebase/firestore';
-import { Sparkles, Plus, Trash2, Heart, Sun, Coffee, Link as LinkIcon, Loader2, Image as ImageIcon, LogOut, X } from 'lucide-react';
-
-// 1. 套用你專屬的 Firebase 設定
-const firebaseConfig = {
-  apiKey: "AIzaSyCEli-f5FVEBFddVpTKqkmwFLotI3XoRrg",
-  authDomain: "collector-efe0a.firebaseapp.com",
-  projectId: "collector-efe0a",
-  storageBucket: "collector-efe0a.firebasestorage.app",
-  messagingSenderId: "327052073955",
-  appId: "1:327052073955:web:d6f541f89a7a41ad9eded6"
-};
-
-// 初始化 Firebase 服務
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const googleProvider = new GoogleAuthProvider();
-
-// 定義開朗風格的分類設定
-const CATEGORIES = {
-  idea: { id: 'idea', label: '閃亮點子', icon: Sun, color: 'bg-amber-100 text-amber-700 border-amber-300 shadow-amber-200/50' },
-  link: { id: 'link', label: '好用連結', icon: LinkIcon, color: 'bg-blue-100 text-blue-700 border-blue-300 shadow-blue-200/50' },
-  note: { id: 'note', label: '日常筆記', icon: Coffee, color: 'bg-emerald-100 text-emerald-700 border-emerald-300 shadow-emerald-200/50' },
-  favorite: { id: 'favorite', label: '我的最愛', icon: Heart, color: 'bg-rose-100 text-rose-700 border-rose-300 shadow-rose-200/50' }
-};
-
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [items, setItems] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>我的雲端百寶箱</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
   
-  // 表單狀態
-  const [newItemText, setNewItemText] = useState('');
-  const [newItemCategory, setNewItemCategory] = useState('idea');
-  const [imageBase64, setImageBase64] = useState(''); // 儲存 Base64 圖片
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  // 篩選狀態與 DOM 參考
-  const [activeFilter, setActiveFilter] = useState('all');
-  const fileInputRef = useRef(null);
-
-  // 監聽登入狀態
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setIsLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // 獲取當前使用者的資料
-  useEffect(() => {
-    if (!user) {
-      setItems([]);
-      return;
+  <style>
+    /* 自訂捲軸與一些基礎樣式 */
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #fcd34d;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #fbbf24;
+    }
+    .glass-panel {
+      background: rgba(255, 255, 255, 0.8);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.6);
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-amber-50 via-rose-50 to-purple-50 text-gray-800 selection:bg-rose-200">
 
-    // 路徑設定為：users/{當前使用者 UID}/treasures
-    const itemsRef = collection(db, 'users', user.uid, 'treasures');
+  <!-- 載入中畫面 -->
+  <div id="loading-screen" class="fixed inset-0 bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50 flex items-center justify-center z-50 transition-opacity duration-500">
+    <div class="text-center animate-bounce">
+      <i data-lucide="sparkles" class="w-16 h-16 text-amber-400 mx-auto mb-4"></i>
+      <h2 class="text-2xl font-bold text-amber-700">正在準備百寶箱...</h2>
+    </div>
+  </div>
+
+  <!-- 登入畫面 (預設隱藏) -->
+  <div id="login-screen" class="hidden min-h-screen flex-col items-center justify-center p-4">
+    <div class="glass-panel rounded-[3rem] p-12 shadow-2xl shadow-rose-200/50 text-center max-w-md w-full relative overflow-hidden">
+      <!-- 裝飾用背景光暈 -->
+      <div class="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-amber-100/30 to-rose-100/30 -z-10 pointer-events-none"></div>
+      
+      <div class="inline-flex items-center justify-center p-6 bg-gradient-to-tr from-amber-300 to-rose-400 rounded-full mb-8 shadow-lg shadow-rose-200">
+        <i data-lucide="sparkles" class="w-16 h-16 text-white"></i>
+      </div>
+      <h1 class="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-rose-500 mb-4">
+        雲端百寶箱
+      </h1>
+      <p class="text-gray-500 mb-8 font-medium text-lg">登入專屬帳號，開啟你的靈感小天地 ✨</p>
+      <button id="btn-login" class="w-full py-4 rounded-2xl bg-white border-2 border-gray-100 text-gray-700 font-bold text-lg shadow-sm hover:shadow-md hover:bg-gray-50 active:scale-[0.98] transition-all flex items-center justify-center gap-3">
+        <svg class="w-6 h-6" viewBox="0 0 24 24">
+          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+        </svg>
+        用 Google 帳號登入
+      </button>
+    </div>
+  </div>
+
+  <!-- 主要應用程式畫面 (預設隱藏) -->
+  <div id="app-screen" class="hidden p-4 sm:p-8 max-w-5xl mx-auto space-y-8 fade-in">
     
-    const unsubscribe = onSnapshot(itemsRef, (snapshot) => {
-      const fetchedItems = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      
-      // 排序：最新建立的在最上方
-      fetchedItems.sort((a, b) => b.createdAt - a.createdAt);
-      setItems(fetchedItems);
-    }, (error) => {
-      console.error("讀取資料時發生錯誤:", error);
-    });
-
-    return () => unsubscribe();
-  }, [user]);
-
-  // 處理 Google 登入
-  const handleLogin = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (error) {
-      console.error("登入失敗:", error);
-      alert("登入時發生錯誤，請稍後再試。");
-    }
-  };
-
-  // 處理登出
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.error("登出失敗:", error);
-    }
-  };
-
-  // 處理圖片選擇與轉換 Base64
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    // 檢查檔案大小 (限制約 1MB，避免 Firestore 單一文件過大)
-    if (file.size > 1024 * 1024) {
-      alert("圖片太大了！請選擇小於 1MB 的圖片。");
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setImageBase64(reader.result); // 轉換完成後存入 state
-    };
-    reader.readAsDataURL(file); // 讀取為 Base64 格式
-  };
-
-  // 移除已選擇的圖片
-  const removeImage = () => {
-    setImageBase64('');
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  // 新增收藏
-  const handleAddItem = async (e) => {
-    e.preventDefault();
-    if ((!newItemText.trim() && !imageBase64) || !user || isSubmitting) return;
-
-    setIsSubmitting(true);
-    try {
-      const itemsRef = collection(db, 'users', user.uid, 'treasures');
-      await addDoc(itemsRef, {
-        text: newItemText.trim(),
-        category: newItemCategory,
-        image: imageBase64, // 存入 Base64 字串
-        createdAt: Date.now()
-      });
-      
-      // 清空表單
-      setNewItemText('');
-      removeImage();
-    } catch (error) {
-      console.error("新增失敗:", error);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  // 刪除收藏
-  const handleDeleteItem = async (id) => {
-    if (!user) return;
-    try {
-      await deleteDoc(doc(db, 'users', user.uid, 'treasures', id));
-    } catch (error) {
-      console.error("刪除失敗:", error);
-    }
-  };
-
-  // 在記憶體中進行篩選
-  const filteredItems = useMemo(() => {
-    if (activeFilter === 'all') return items;
-    return items.filter(item => item.category === activeFilter);
-  }, [items, activeFilter]);
-
-  // 載入中畫面
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50 flex items-center justify-center">
-        <div className="text-center animate-bounce">
-          <Sparkles className="w-16 h-16 text-amber-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-amber-700">正在準備百寶箱...</h2>
+    <!-- 標題與使用者資訊 -->
+    <header class="glass-panel rounded-[2.5rem] p-6 sm:p-8 shadow-xl shadow-rose-100/50 flex flex-col sm:flex-row items-center justify-between gap-4 transition-all hover:shadow-2xl duration-300">
+      <div class="flex items-center gap-4">
+        <div class="inline-flex items-center justify-center p-3 bg-gradient-to-tr from-amber-300 to-rose-400 rounded-full shadow-lg shadow-rose-200">
+          <i data-lucide="sparkles" class="w-8 h-8 text-white"></i>
         </div>
-      </div>
-    );
-  }
-
-  // 尚未登入畫面
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-rose-50 to-purple-50 flex flex-col items-center justify-center p-4">
-        <div className="bg-white/80 backdrop-blur-xl rounded-[3rem] p-12 shadow-2xl shadow-rose-200/50 border border-white text-center max-w-md w-full">
-          <div className="inline-flex items-center justify-center p-6 bg-gradient-to-tr from-amber-300 to-rose-400 rounded-full mb-8 shadow-lg shadow-rose-200">
-            <Sparkles className="w-16 h-16 text-white" />
-          </div>
-          <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-rose-500 mb-4">
-            雲端百寶箱
+        <div>
+          <h1 class="text-2xl sm:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-rose-500">
+            我的雲端百寶箱
           </h1>
-          <p className="text-gray-500 mb-8 font-medium text-lg">登入專屬帳號，開啟你的靈感小天地 ✨</p>
-          <button
-            onClick={handleLogin}
-            className="w-full py-4 rounded-2xl bg-white border-2 border-gray-100 text-gray-700 font-bold text-lg shadow-sm hover:shadow-md hover:bg-gray-50 active:scale-[0.98] transition-all flex items-center justify-center gap-3"
-          >
-            <svg className="w-6 h-6" viewBox="0 0 24 24">
-              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-            </svg>
-            用 Google 帳號登入
-          </button>
+          <p class="text-gray-500 font-medium text-sm sm:text-base">收集生活中的每一個小靈感 ✨</p>
         </div>
       </div>
-    );
-  }
 
-  // 主要應用程式畫面
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-rose-50 to-purple-50 p-4 sm:p-8 font-sans text-gray-800 selection:bg-rose-200">
-      <div className="max-w-5xl mx-auto space-y-8">
-        
-        {/* 開朗的標題區塊 */}
-        <header className="bg-white/60 backdrop-blur-xl rounded-[2.5rem] p-6 sm:p-8 shadow-xl shadow-rose-100/50 border border-white flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="inline-flex items-center justify-center p-3 bg-gradient-to-tr from-amber-300 to-rose-400 rounded-full shadow-lg shadow-rose-200">
-              <Sparkles className="w-8 h-8 text-white" />
-            </div>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-rose-500">
-                我的雲端百寶箱
-              </h1>
-              <p className="text-gray-500 font-medium text-sm sm:text-base">收集生活中的每一個小靈感 ✨</p>
-            </div>
-          </div>
+      <div class="flex items-center gap-3 bg-white/50 py-2 px-4 rounded-full border border-white">
+        <img id="user-avatar" src="" alt="Avatar" class="w-8 h-8 rounded-full border-2 border-white shadow-sm hidden">
+        <div id="user-initial" class="w-8 h-8 rounded-full bg-amber-200 flex items-center justify-center text-amber-700 font-bold border-2 border-white">U</div>
+        <span id="user-name" class="font-bold text-gray-700 hidden sm:inline-block max-w-[100px] truncate">使用者</span>
+        <button id="btn-logout" class="p-2 text-gray-400 hover:text-rose-500 transition-colors ml-2" title="登出">
+          <i data-lucide="log-out" class="w-5 h-5"></i>
+        </button>
+      </div>
+    </header>
 
-          {/* 使用者資訊與登出 */}
-          <div className="flex items-center gap-3 bg-white/50 py-2 px-4 rounded-full border border-white">
-            {user.photoURL ? (
-              <img src={user.photoURL} alt="Avatar" className="w-8 h-8 rounded-full border-2 border-white shadow-sm" />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-amber-200 flex items-center justify-center text-amber-700 font-bold border-2 border-white">
-                {user.displayName?.charAt(0) || 'U'}
-              </div>
-            )}
-            <span className="font-bold text-gray-700 hidden sm:inline-block max-w-[100px] truncate">
-              {user.displayName || '使用者'}
-            </span>
-            <button 
-              onClick={handleLogout}
-              className="p-2 text-gray-400 hover:text-rose-500 transition-colors ml-2"
-              title="登出"
-            >
-              <LogOut className="w-5 h-5" />
-            </button>
-          </div>
-        </header>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      
+      <!-- 左側：新增表單 -->
+      <div class="lg:col-span-1">
+        <div class="glass-panel rounded-[2rem] p-6 shadow-xl shadow-purple-100/50 sticky top-8">
+          <h2 class="text-xl font-bold mb-4 flex items-center text-gray-700">
+            <i data-lucide="plus" class="w-6 h-6 mr-2 text-rose-400"></i> 放進新寶貝
+          </h2>
           
-          {/* 左側：新增表單 */}
-          <div className="lg:col-span-1">
-            <div className="bg-white/80 backdrop-blur-md rounded-[2rem] p-6 shadow-xl shadow-purple-100/50 border border-white sticky top-8">
-              <h2 className="text-xl font-bold mb-4 flex items-center text-gray-700">
-                <Plus className="w-6 h-6 mr-2 text-rose-400" /> 放進新寶貝
-              </h2>
-              
-              <form onSubmit={handleAddItem} className="space-y-4">
-                {/* 內容輸入 */}
-                <div>
-                  <textarea
-                    value={newItemText}
-                    onChange={(e) => setNewItemText(e.target.value)}
-                    placeholder="今天發現了什麼好玩的事？"
-                    className="w-full h-32 p-4 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-rose-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-rose-100 transition-all resize-none"
-                  />
-                </div>
-
-                {/* 圖片預覽區 */}
-                {imageBase64 && (
-                  <div className="relative rounded-xl overflow-hidden border-2 border-gray-100 shadow-sm">
-                    <img src={imageBase64} alt="預覽" className="w-full h-32 object-cover" />
-                    <button
-                      type="button"
-                      onClick={removeImage}
-                      className="absolute top-2 right-2 p-1.5 bg-black/50 text-white rounded-full hover:bg-red-500 transition-colors backdrop-blur-sm"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
-
-                {/* 附加功能區 (上傳圖片) */}
-                <div className="flex items-center gap-2">
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    onChange={handleImageChange}
-                    className="hidden" 
-                    ref={fileInputRef}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex-1 py-3 rounded-xl bg-gray-50 text-gray-600 font-bold hover:bg-gray-100 border border-gray-200 transition-all flex items-center justify-center gap-2"
-                  >
-                    <ImageIcon className="w-5 h-5" /> 
-                    {imageBase64 ? '更換圖片' : '加入圖片'}
-                  </button>
-                </div>
-
-                {/* 分類選擇 */}
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  {Object.values(CATEGORIES).map((cat) => {
-                    const Icon = cat.icon;
-                    const isSelected = newItemCategory === cat.id;
-                    return (
-                      <button
-                        type="button"
-                        key={cat.id}
-                        onClick={() => setNewItemCategory(cat.id)}
-                        className={`p-3 rounded-xl flex items-center justify-center gap-2 transition-all border-2 ${
-                          isSelected 
-                            ? cat.color.replace('text-', 'bg-').replace('bg-', 'ring-') + ' border-transparent scale-105 shadow-sm' 
-                            : 'bg-white border-gray-100 text-gray-400 hover:bg-gray-50'
-                        }`}
-                      >
-                        <Icon className="w-4 h-4" />
-                        <span className="font-bold text-sm">{cat.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* 提交按鈕 */}
-                <button
-                  type="submit"
-                  disabled={(!newItemText.trim() && !imageBase64) || isSubmitting}
-                  className="w-full py-4 mt-2 rounded-2xl bg-gradient-to-r from-amber-400 to-rose-400 text-white font-bold text-lg shadow-lg shadow-rose-200 hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                >
-                  {isSubmitting ? <Loader2 className="w-6 h-6 animate-spin" /> : '收藏起來！ 🎉'}
-                </button>
-              </form>
+          <form id="add-form" class="space-y-4">
+            <!-- 內容輸入 -->
+            <div>
+              <textarea
+                id="item-text"
+                placeholder="今天發現了什麼好玩的事？"
+                class="w-full h-32 p-4 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-rose-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-rose-100 transition-all resize-none"
+              ></textarea>
             </div>
-          </div>
 
-          {/* 右側：展示區塊 */}
-          <div className="lg:col-span-2 space-y-6">
-            
-            {/* 篩選標籤 */}
-            <div className="flex flex-wrap gap-2 p-2 bg-white/50 backdrop-blur-sm rounded-full border border-white inline-flex shadow-sm">
+            <!-- 圖片預覽區 -->
+            <div id="image-preview-container" class="hidden relative rounded-xl overflow-hidden border-2 border-gray-100 shadow-sm">
+              <img id="image-preview" src="" alt="預覽" class="w-full h-32 object-cover">
               <button
-                onClick={() => setActiveFilter('all')}
-                className={`px-6 py-2 rounded-full font-bold text-sm transition-all ${
-                  activeFilter === 'all'
-                    ? 'bg-gray-800 text-white shadow-md'
-                    : 'text-gray-500 hover:bg-white/80'
-                }`}
+                type="button"
+                id="btn-remove-image"
+                class="absolute top-2 right-2 p-1.5 bg-black/50 text-white rounded-full hover:bg-red-500 transition-colors backdrop-blur-sm"
               >
-                全部寶貝
+                <i data-lucide="x" class="w-4 h-4"></i>
               </button>
-              {Object.values(CATEGORIES).map((cat) => (
-                <button
-                  key={cat.id}
-                  onClick={() => setActiveFilter(cat.id)}
-                  className={`px-4 py-2 rounded-full font-bold text-sm flex items-center gap-1 transition-all ${
-                    activeFilter === cat.id
-                      ? cat.color
-                      : 'text-gray-500 hover:bg-white/80'
-                  }`}
-                >
-                  <cat.icon className="w-4 h-4" />
-                  {cat.label}
-                </button>
-              ))}
             </div>
 
-            {/* 收藏卡片網格 */}
-            {filteredItems.length === 0 ? (
-              <div className="bg-white/50 border-2 border-dashed border-gray-200 rounded-[2rem] p-12 text-center">
-                <div className="text-6xl mb-4">🎈</div>
-                <h3 className="text-xl font-bold text-gray-500">這裡還空空的耶！</h3>
-                <p className="text-gray-400 mt-2">趕快從左邊新增一些酷東西或圖片進來吧～</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {filteredItems.map((item) => {
-                  const categoryInfo = CATEGORIES[item.category] || CATEGORIES.note;
-                  const Icon = categoryInfo.icon;
-                  const isLink = item.text && (item.text.startsWith('http://') || item.text.startsWith('https://'));
+            <!-- 圖片上傳按鈕 -->
+            <div class="flex items-center gap-2">
+              <input type="file" id="file-input" accept="image/*" class="hidden">
+              <button
+                type="button"
+                id="btn-upload-trigger"
+                class="flex-1 py-3 rounded-xl bg-gray-50 text-gray-600 font-bold hover:bg-gray-100 border border-gray-200 transition-all flex items-center justify-center gap-2"
+              >
+                <i data-lucide="image" class="w-5 h-5"></i>
+                <span id="upload-btn-text">加入圖片</span>
+              </button>
+            </div>
 
-                  return (
-                    <div 
-                      key={item.id}
-                      className="group bg-white/90 backdrop-blur-sm rounded-[1.5rem] p-6 shadow-sm border border-white/50 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden flex flex-col"
-                    >
-                      {/* 卡片頂部裝飾條 */}
-                      <div className={`absolute top-0 left-0 w-full h-1.5 ${categoryInfo.color.split(' ')[0]}`} />
-                      
-                      <div className="flex justify-between items-start mb-3">
-                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold border shadow-sm ${categoryInfo.color}`}>
-                          <Icon className="w-3.5 h-3.5" />
-                          {categoryInfo.label}
-                        </span>
-                        
-                        <button
-                          onClick={() => handleDeleteItem(item.id)}
-                          className="text-gray-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-full transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 z-10 bg-white/80 backdrop-blur-sm"
-                          title="刪除"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                      
-                      {/* 圖片展示 (如果有上傳圖片) */}
-                      {item.image && (
-                        <div className="mb-4 -mx-2 rounded-xl overflow-hidden bg-gray-100">
-                          <img 
-                            src={item.image} 
-                            alt="收藏圖片" 
-                            className="w-full h-48 object-cover hover:scale-105 transition-transform duration-500" 
-                          />
-                        </div>
-                      )}
-                      
-                      {/* 文字內容 */}
-                      {item.text && (
-                        <div className="text-gray-700 whitespace-pre-wrap leading-relaxed flex-1">
-                          {isLink ? (
-                            <a href={item.text} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-600 hover:underline break-all font-medium">
-                              {item.text}
-                            </a>
-                          ) : (
-                            item.text
-                          )}
-                        </div>
-                      )}
-                      
-                      <div className="mt-4 text-xs text-gray-400 font-medium border-t border-gray-100 pt-3">
-                        {new Date(item.createdAt).toLocaleString('zh-TW', {
-                          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            
-          </div>
+            <!-- 分類選擇 -->
+            <div class="grid grid-cols-2 gap-2 mt-2" id="category-selector">
+              <!-- 按鈕由 JS 動態生成 -->
+            </div>
+
+            <!-- 提交按鈕 -->
+            <button
+              type="submit"
+              id="btn-submit"
+              class="w-full py-4 mt-2 rounded-2xl bg-gradient-to-r from-amber-400 to-rose-400 text-white font-bold text-lg shadow-lg shadow-rose-200 hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+            >
+              <span id="submit-text">收藏起來！ 🎉</span>
+              <i data-lucide="loader-2" id="submit-loader" class="w-6 h-6 animate-spin hidden"></i>
+            </button>
+          </form>
         </div>
+      </div>
+
+      <!-- 右側：展示區塊 -->
+      <div class="lg:col-span-2 space-y-6">
+        
+        <!-- 篩選標籤 -->
+        <div class="flex flex-wrap gap-2 p-2 bg-white/50 backdrop-blur-sm rounded-full border border-white shadow-sm inline-flex" id="filter-container">
+          <button data-filter="all" class="filter-btn active-filter px-6 py-2 rounded-full font-bold text-sm transition-all bg-gray-800 text-white shadow-md">
+            全部寶貝
+          </button>
+          <!-- 其他篩選按鈕由 JS 動態生成 -->
+        </div>
+
+        <!-- 收藏卡片網格 -->
+        <div id="empty-state" class="hidden bg-white/50 border-2 border-dashed border-gray-200 rounded-[2rem] p-12 text-center">
+          <div class="text-6xl mb-4">🎈</div>
+          <h3 class="text-xl font-bold text-gray-500">這裡還空空的耶！</h3>
+          <p class="text-gray-400 mt-2">趕快從左邊新增一些酷東西或圖片進來吧～</p>
+        </div>
+
+        <div id="items-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- 卡片由 JS 動態生成 -->
+        </div>
+        
       </div>
     </div>
-  );
-}
+  </div>
+
+  <!-- Firebase SDKs -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+    import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+    import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+
+    // 1. Firebase 設定
+    const firebaseConfig = {
+      apiKey: "AIzaSyCEli-f5FVEBFddVpTKqkmwFLotI3XoRrg",
+      authDomain: "collector-efe0a.firebaseapp.com",
+      projectId: "collector-efe0a",
+      storageBucket: "collector-efe0a.firebasestorage.app",
+      messagingSenderId: "327052073955",
+      appId: "1:327052073955:web:d6f541f89a7a41ad9eded6"
+    };
+
+    // 初始化 Firebase
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const googleProvider = new GoogleAuthProvider();
+
+    // 2. 分類設定資料
+    const CATEGORIES = {
+      idea: { id: 'idea', label: '閃亮點子', icon: 'sun', colorBase: 'amber' },
+      link: { id: 'link', label: '好用連結', icon: 'link', colorBase: 'blue' },
+      note: { id: 'note', label: '日常筆記', icon: 'coffee', colorBase: 'emerald' },
+      favorite: { id: 'favorite', label: '我的最愛', icon: 'heart', colorBase: 'rose' }
+    };
+
+    // 取得顏色 class 的輔助函數
+    function getCategoryColors(colorBase, isSelected = false) {
+      if (isSelected) {
+        return `bg-${colorBase}-100 text-${colorBase}-700 ring-2 ring-${colorBase}-300 shadow-${colorBase}-200/50 scale-105 border-transparent`;
+      }
+      return `bg-white text-gray-400 border-gray-100 hover:bg-gray-50 border-2`;
+    }
+
+    function getTagColors(colorBase) {
+      return `bg-${colorBase}-100 text-${colorBase}-700 border-${colorBase}-200 shadow-sm`;
+    }
+
+    // 3. 全域狀態
+    let currentUser = null;
+    let currentCategory = 'idea';
+    let currentFilter = 'all';
+    let currentImageBase64 = '';
+    let allItems = [];
+    let unsubscribeSnapshot = null;
+
+    // 4. DOM 元素
+    const screens = {
+      loading: document.getElementById('loading-screen'),
+      login: document.getElementById('login-screen'),
+      app: document.getElementById('app-screen')
+    };
+    
+    // 表單相關
+    const form = document.getElementById('add-form');
+    const textInput = document.getElementById('item-text');
+    const categorySelector = document.getElementById('category-selector');
+    const btnSubmit = document.getElementById('btn-submit');
+    const submitText = document.getElementById('submit-text');
+    const submitLoader = document.getElementById('submit-loader');
+    
+    // 圖片相關
+    const fileInput = document.getElementById('file-input');
+    const btnUploadTrigger = document.getElementById('btn-upload-trigger');
+    const uploadBtnText = document.getElementById('upload-btn-text');
+    const imagePreviewContainer = document.getElementById('image-preview-container');
+    const imagePreview = document.getElementById('image-preview');
+    const btnRemoveImage = document.getElementById('btn-remove-image');
+
+    // 展示相關
+    const itemsGrid = document.getElementById('items-grid');
+    const emptyState = document.getElementById('empty-state');
+    const filterContainer = document.getElementById('filter-container');
+
+    // 5. 初始化 UI 生成
+    function initUI() {
+      // 產生分類選擇按鈕
+      categorySelector.innerHTML = Object.values(CATEGORIES).map(cat => `
+        <button type="button" data-cat="${cat.id}" class="cat-btn p-3 rounded-xl flex items-center justify-center gap-2 transition-all ${getCategoryColors(cat.colorBase, cat.id === currentCategory)}">
+          <i data-lucide="${cat.icon}" class="w-4 h-4"></i>
+          <span class="font-bold text-sm">${cat.label}</span>
+        </button>
+      `).join('');
+
+      // 產生篩選按鈕
+      const filtersHtml = Object.values(CATEGORIES).map(cat => `
+        <button data-filter="${cat.id}" class="filter-btn px-4 py-2 rounded-full font-bold text-sm flex items-center gap-1 transition-all text-gray-500 hover:bg-white/80">
+          <i data-lucide="${cat.icon}" class="w-4 h-4"></i>
+          ${cat.label}
+        </button>
+      `).join('');
+      filterContainer.innerHTML += filtersHtml;
+
+      lucide.createIcons();
+      attachEventHandlers();
+    }
+
+    // 更新分類按鈕樣式
+    function updateCategorySelection() {
+      document.querySelectorAll('.cat-btn').forEach(btn => {
+        const catId = btn.dataset.cat;
+        const colorBase = CATEGORIES[catId].colorBase;
+        const isSelected = catId === currentCategory;
+        btn.className = `cat-btn p-3 rounded-xl flex items-center justify-center gap-2 transition-all ${getCategoryColors(colorBase, isSelected)}`;
+      });
+    }
+
+    // 更新篩選按鈕樣式
+    function updateFilterSelection() {
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        const filterId = btn.dataset.filter;
+        
+        if (filterId === 'all') {
+          btn.className = `filter-btn px-6 py-2 rounded-full font-bold text-sm transition-all ${currentFilter === 'all' ? 'bg-gray-800 text-white shadow-md' : 'text-gray-500 hover:bg-white/80'}`;
+        } else {
+          const cat = CATEGORIES[filterId];
+          btn.className = `filter-btn px-4 py-2 rounded-full font-bold text-sm flex items-center gap-1 transition-all ${currentFilter === filterId ? getTagColors(cat.colorBase) : 'text-gray-500 hover:bg-white/80'}`;
+        }
+      });
+    }
+
+    // 6. 事件綁定
+    function attachEventHandlers() {
+      // 登入/登出
+      document.getElementById('btn-login').addEventListener('click', async () => {
+        try {
+          await signInWithPopup(auth, googleProvider);
+        } catch (error) {
+          console.error("登入失敗:", error);
+          alert("登入時發生錯誤，請稍後再試。");
+        }
+      });
+
+      document.getElementById('btn-logout').addEventListener('click', async () => {
+        try {
+          await signOut(auth);
+        } catch (error) {
+          console.error("登出失敗:", error);
+        }
+      });
+
+      // 分類點擊
+      categorySelector.addEventListener('click', (e) => {
+        const btn = e.target.closest('.cat-btn');
+        if (!btn) return;
+        currentCategory = btn.dataset.cat;
+        updateCategorySelection();
+      });
+
+      // 篩選點擊
+      filterContainer.addEventListener('click', (e) => {
+        const btn = e.target.closest('.filter-btn');
+        if (!btn) return;
+        currentFilter = btn.dataset.filter;
+        updateFilterSelection();
+        renderItems();
+      });
+
+      // 圖片上傳相關
+      btnUploadTrigger.addEventListener('click', () => fileInput.click());
+      
+      fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (file.size > 1024 * 1024) {
+          alert("圖片太大了！請選擇小於 1MB 的圖片。");
+          fileInput.value = '';
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          currentImageBase64 = reader.result;
+          imagePreview.src = currentImageBase64;
+          imagePreviewContainer.classList.remove('hidden');
+          uploadBtnText.textContent = '更換圖片';
+          checkFormValidity();
+        };
+        reader.readAsDataURL(file);
+      });
+
+      btnRemoveImage.addEventListener('click', clearImage);
+      textInput.addEventListener('input', checkFormValidity);
+
+      // 表單提交
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if ((!textInput.value.trim() && !currentImageBase64) || !currentUser) return;
+
+        setLoadingState(true);
+        try {
+          const itemsRef = collection(db, 'users', currentUser.uid, 'treasures');
+          await addDoc(itemsRef, {
+            text: textInput.value.trim(),
+            category: currentCategory,
+            image: currentImageBase64,
+            createdAt: Date.now()
+          });
+          
+          // 清空表單
+          textInput.value = '';
+          clearImage();
+        } catch (error) {
+          console.error("新增失敗:", error);
+          alert("新增失敗，請檢查權限或稍後再試。");
+        } finally {
+          setLoadingState(false);
+        }
+      });
+    }
+
+    // 輔助功能：清除圖片
+    function clearImage() {
+      currentImageBase64 = '';
+      fileInput.value = '';
+      imagePreview.src = '';
+      imagePreviewContainer.classList.add('hidden');
+      uploadBtnText.textContent = '加入圖片';
+      checkFormValidity();
+    }
+
+    // 輔助功能：檢查表單是否可送出
+    function checkFormValidity() {
+      const isValid = textInput.value.trim().length > 0 || currentImageBase64.length > 0;
+      btnSubmit.disabled = !isValid;
+    }
+
+    // 輔助功能：設定提交按鈕狀態
+    function setLoadingState(isLoading) {
+      btnSubmit.disabled = isLoading;
+      if (isLoading) {
+        submitText.classList.add('hidden');
+        submitLoader.classList.remove('hidden');
+      } else {
+        submitText.classList.remove('hidden');
+        submitLoader.classList.add('hidden');
+      }
+    }
+
+    // 7. 渲染資料卡片
+    function renderItems() {
+      const filtered = currentFilter === 'all' 
+        ? allItems 
+        : allItems.filter(item => item.category === currentFilter);
+
+      if (filtered.length === 0) {
+        itemsGrid.innerHTML = '';
+        emptyState.classList.remove('hidden');
+        return;
+      }
+
+      emptyState.classList.add('hidden');
+      
+      itemsGrid.innerHTML = filtered.map(item => {
+        const cat = CATEGORIES[item.category] || CATEGORIES.note;
+        const isLink = item.text && (item.text.startsWith('http://') || item.text.startsWith('https://'));
+        
+        const dateStr = new Date(item.createdAt).toLocaleString('zh-TW', {
+          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+        });
+
+        // 圖片區塊
+        const imageHtml = item.image ? `
+          <div class="mb-4 -mx-2 rounded-xl overflow-hidden bg-gray-100">
+            <img src="${item.image}" alt="收藏圖片" class="w-full h-48 object-cover hover:scale-105 transition-transform duration-500">
+          </div>
+        ` : '';
+
+        // 文字區塊 (簡易處理 XSS 與連結)
+        let textHtml = '';
+        if (item.text) {
+          const safeText = item.text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+          if (isLink) {
+            textHtml = `<a href="${safeText}" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:text-blue-600 hover:underline break-all font-medium">${safeText}</a>`;
+          } else {
+            textHtml = safeText;
+          }
+        }
+
+        return `
+          <div class="group bg-white/90 backdrop-blur-sm rounded-[1.5rem] p-6 shadow-sm border border-white/50 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden flex flex-col">
+            <div class="absolute top-0 left-0 w-full h-1.5 bg-${cat.colorBase}-400"></div>
+            
+            <div class="flex justify-between items-start mb-3">
+              <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold border ${getTagColors(cat.colorBase)}">
+                <i data-lucide="${cat.icon}" class="w-3.5 h-3.5"></i>
+                ${cat.label}
+              </span>
+              
+              <button onclick="deleteItem('${item.id}')" class="text-gray-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-full transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 z-10 bg-white/80 backdrop-blur-sm" title="刪除">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+            </div>
+            
+            ${imageHtml}
+            
+            <div class="text-gray-700 whitespace-pre-wrap leading-relaxed flex-1">${textHtml}</div>
+            
+            <div class="mt-4 text-xs text-gray-400 font-medium border-t border-gray-100 pt-3">
+              ${dateStr}
+            </div>
+          </div>
+        `;
+      }).join('');
+      
+      lucide.createIcons();
+    }
+
+    // 全域暴露刪除函數供 onclick 呼叫
+    window.deleteItem = async (id) => {
+      if (!currentUser) return;
+      try {
+        await deleteDoc(doc(db, 'users', currentUser.uid, 'treasures', id));
+      } catch (error) {
+        console.error("刪除失敗:", error);
+      }
+    };
+
+    // 8. 監聽身分驗證與資料庫
+    function setupAuthAndData() {
+      onAuthStateChanged(auth, (user) => {
+        currentUser = user;
+        
+        // 隱藏 Loading
+        screens.loading.classList.add('hidden');
+
+        if (user) {
+          // 顯示應用程式畫面
+          screens.login.classList.add('hidden');
+          screens.app.classList.remove('hidden');
+          
+          // 更新使用者資訊 UI
+          document.getElementById('user-name').textContent = user.displayName || '使用者';
+          if (user.photoURL) {
+            document.getElementById('user-avatar').src = user.photoURL;
+            document.getElementById('user-avatar').classList.remove('hidden');
+            document.getElementById('user-initial').classList.add('hidden');
+          } else {
+            document.getElementById('user-initial').textContent = (user.displayName?.charAt(0) || 'U').toUpperCase();
+            document.getElementById('user-avatar').classList.add('hidden');
+            document.getElementById('user-initial').classList.remove('hidden');
+          }
+
+          // 訂閱資料
+          const itemsRef = collection(db, 'users', user.uid, 'treasures');
+          unsubscribeSnapshot = onSnapshot(itemsRef, (snapshot) => {
+            allItems = snapshot.docs.map(doc => ({
+              id: doc.id,
+              ...doc.data()
+            }));
+            
+            // 排序：最新的在前面
+            allItems.sort((a, b) => b.createdAt - a.createdAt);
+            renderItems();
+          }, (error) => {
+            console.error("讀取資料失敗:", error);
+          });
+
+        } else {
+          // 顯示登入畫面
+          screens.app.classList.add('hidden');
+          screens.login.classList.remove('hidden');
+          screens.login.style.display = 'flex'; // 覆寫 tailwind 的 hidden
+          
+          // 清除資料與監聽
+          allItems = [];
+          if (unsubscribeSnapshot) {
+            unsubscribeSnapshot();
+            unsubscribeSnapshot = null;
+          }
+        }
+      });
+    }
+
+    // 啟動應用程式
+    document.addEventListener('DOMContentLoaded', () => {
+      initUI();
+      setupAuthAndData();
+    });
+
+  </script>
+</body>
+</html>
